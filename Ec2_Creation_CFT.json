@@ -1,0 +1,927 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS CloudFormation template to create a new mist cluster\n",
+  "Mappings": {
+    "EC2AmiMap": {
+      "us-east-1": {
+        "AMI": "ami-275ffe31"
+      },
+      "eu-west-1": {
+        "AMI": "ami-95f8d2f3"
+      }
+    }
+  },
+  "Parameters": {
+    "EC2ClusterName": {
+      "Type": "String",
+      "Description": "Specifies the EC2 Cluster Name with which the resources would be associated.",
+      "MinLength": 1
+    },
+    "EC2InstanceType": {
+      "Type": "String",
+      "Description": "EC2 instance type",
+      "Default": "t2.micro",
+      "ConstraintDescription": "must be a valid EC2 instance type."
+    },
+    "KeyName": {
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "Description": "Name of an existing EC2 KeyPair to enable SSH access to the EC2 instances."
+    },
+    "RootUrlDownload": {
+      "Type": "String",
+      "Default": "https://raw.githubusercontent.com/Hydrospheredata/spark-cloudformation-template/master",
+      "Description": "EC2 configuration scripts",
+      "MinLength": 1
+    },
+    "ConfigurationFile": {
+      "Type": "String",
+      "Default": "https://raw.githubusercontent.com/Hydrospheredata/spark-cloudformation-template/master/mist-conf/default.conf",
+      "Description": "Mist configuration file",
+      "MinLength": 1
+    },
+    "RouteConfigurationFile": {
+      "Type": "String",
+      "Default": "https://raw.githubusercontent.com/Hydrospheredata/spark-cloudformation-template/master/mist-conf/router.conf",
+      "Description": "Mist routes configuration file",
+      "MinLength": 1
+    },
+    "MistImageName": {
+      "Type": "String",
+      "Default": "060183668755.dkr.ecr.eu-west-1.amazonaws.com/mist-EC2",
+      "Description": "EC2 image name",
+      "MinLength": 1
+    },
+    "MistVersion": {
+      "Type": "String",
+      "Default": "0.11.0",
+      "AllowedValues": [
+        "0.11.0"
+      ]
+    },
+    "SparkVersion": {
+      "Type": "String",
+      "Default": "2.1.0",
+      "AllowedValues": [
+        "2.1.0",
+        "2.0.2",
+        "1.6.2",
+        "1.5.2"
+      ]
+    },
+    "StartSparkCluster": {
+      "Type": "String",
+      "Default": "yes",
+      "AllowedValues": [
+        "yes",
+        "no"
+      ]
+    },
+    "SparkSlavesCount": {
+      "Type": "Number",
+      "Default": "1"
+    },
+    "SparkSpotPrice": {
+      "Type": "Number",
+      "Default": "0.03"
+    },
+    "SparkInstanceType": {
+      "Type": "String",
+      "Description": "EC2 instance type",
+      "Default": "t2.micro",
+      "ConstraintDescription": "must be a valid EC2 instance type."
+    },
+
+    "EFSNameTag": {
+      "Description": "The name of the EFS volume",
+      "Type": "String",
+      "MinLength": "1",
+      "Default": "myFirstDevOpsVolume"
+    },
+    "SSHLocation": {
+      "Description": " The IP address range that can be used to SSH to the EC2 instances",
+      "Type": "String",
+      "MinLength": "9",
+      "MaxLength": "18",
+      "Default": "0.0.0.0/0",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+    "CIDRVPC": {
+      "Description": "Enter the CIDR Range for your VPC",
+      "Type": "String",
+      "MinLength": "9",
+      "MaxLength": "18",
+      "Default": "10.10.0.0/16",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+    "CIDRSubnet1": {
+      "Description": "Enter the CIDR Range for your VPC",
+      "Type": "String",
+      "MinLength": "9",
+      "MaxLength": "18",
+      "Default": "10.10.1.0/24",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+    "CIDRSubnet2": {
+      "Description": "Enter the CIDR Range for your VPC",
+      "Type": "String",
+      "MinLength": "9",
+      "MaxLength": "18",
+      "Default": "10.10.2.0/24",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    }
+  },
+  "Resources": {
+    "VPC": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": {
+          "Ref": "CIDRVPC"
+        },
+        "EnableDnsSupport": true,
+        "EnableDnsHostnames": true,
+        "Tags": [{
+          "Key": "Name",
+          "Value": "Mist EC2 Template"
+        }]
+      }
+    },
+    "Subnet1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "MapPublicIpOnLaunch": true,
+        "CidrBlock": {
+          "Ref": "CIDRSubnet1"
+        },
+        "AvailabilityZone": {
+          "Fn::Select": [
+            "0",
+            {
+              "Fn::GetAZs": {
+                "Ref": "AWS::Region"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "Subnet2": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "MapPublicIpOnLaunch": true,
+        "CidrBlock": {
+          "Ref": "CIDRSubnet2"
+        },
+        "AvailabilityZone": {
+          "Fn::Select": [
+            "1",
+            {
+              "Fn::GetAZs": {
+                "Ref": "AWS::Region"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "InternetGateway": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {
+        "Tags": [{
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "Key": "Network",
+            "Value": "Public"
+          }
+        ]
+      }
+    },
+    "GatewayToInternet": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "InternetGatewayId": {
+          "Ref": "InternetGateway"
+        }
+      }
+    },
+    "PublicRouteTable": {
+      "DependsOn": [
+        "VPC"
+      ],
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "Tags": [{
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "Key": "Network",
+            "Value": "Public"
+          }
+        ]
+      }
+    },
+    "PublicRoute": {
+      "DependsOn": [
+        "PublicRouteTable",
+        "InternetGateway"
+      ],
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {
+          "Ref": "InternetGateway"
+        }
+      }
+    },
+    "PublicSubnetRouteTableAssociation": {
+      "DependsOn": [
+        "Subnet1",
+        "PublicRouteTable"
+      ],
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "Subnet1"
+        },
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        }
+      }
+    },
+    "PublicSubnetRouteTableAssociation2": {
+      "DependsOn": [
+        "Subnet2",
+        "PublicRouteTable"
+      ],
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "Subnet2"
+        },
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        }
+      }
+    },
+    "InstanceSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Common security group",
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "SecurityGroupIngress": [{
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": {
+              "Ref": "SSHLocation"
+            }
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "2049",
+            "ToPort": "2049",
+            "CidrIp": {
+              "Ref": "CIDRVPC"
+            }
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "0",
+            "ToPort": "65535",
+            "CidrIp": {
+              "Ref": "CIDRVPC"
+            }
+          }
+        ]
+      }
+    },
+    "MistMasterSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Mist UI security group",
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "SecurityGroupIngress": [{
+          "IpProtocol": "tcp",
+          "FromPort": "2004",
+          "ToPort": "2004",
+          "CidrIp": "0.0.0.0/0"
+        }]
+      }
+    },
+    "FileSystem": {
+      "Type": "AWS::EFS::FileSystem",
+      "Properties": {
+        "FileSystemTags": [{
+          "Key": "Name",
+          "Value": {
+            "Ref": "EFSNameTag"
+          }
+        }]
+      }
+    },
+    "MountTarget": {
+      "Type": "AWS::EFS::MountTarget",
+      "Properties": {
+        "FileSystemId": {
+          "Ref": "FileSystem"
+        },
+        "SubnetId": {
+          "Ref": "Subnet1"
+        },
+        "SecurityGroups": [{
+          "Ref": "InstanceSecurityGroup"
+        }]
+      }
+    },
+    "MountTarget2": {
+      "Type": "AWS::EFS::MountTarget",
+      "Properties": {
+        "FileSystemId": {
+          "Ref": "FileSystem"
+        },
+        "SubnetId": {
+          "Ref": "Subnet2"
+        },
+        "SecurityGroups": [{
+          "Ref": "InstanceSecurityGroup"
+        }]
+      }
+    },
+    "EC2InstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [{
+          "Ref": "DescribeRole"
+        }]
+      }
+    },
+    "DescribeRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {
+              "Service": [
+                "ec2.amazonaws.com",
+                "EC2.amazonaws.com",
+                "EC2-tasks.amazonaws.com"
+              ]
+            },
+            "Action": [
+              "sts:AssumeRole"
+            ]
+          }]
+        },
+        "Path": "/",
+        "Policies": [{
+          "PolicyName": "describe-instance-policy",
+          "PolicyDocument": {
+            "Statement": [{
+              "Effect": "Allow",
+              "Action": [
+                "iam:*",
+                "ec2:*",
+                "EC2:*",
+                "ecr:*",
+                "autoscaling:*",
+                "am:*",
+                "cloudformation:*",
+                "elasticfilesystem:Describe*"
+              ],
+              "Resource": ["*"]
+            }]
+          }
+        }]
+      }
+    },
+    "EC2Cluster": {
+      "Type": "AWS::EC2::Cluster",
+      "Properties": {
+        "ClusterName": {
+          "Ref": "EC2ClusterName"
+        }
+      }
+    },
+    "MistMasterLaunchConfiguration": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+    },
+
+    "ChefServer": {
+      "Type": "AWS::EC2::Instance",
+      "Metadata": {
+        "Comment1": "Configure the bootstrap helpers to install Chef Server",
+
+        "AWS::CloudFormation::Init": {
+          "config": {
+            "packages": {
+              "yum": {
+                "ntp": [],
+                "crontabs": [],
+                "git": [],
+                "freetype": [],
+                "libpng": [],
+                "wget": [],
+                "curl": []
+              }
+            },
+            "files": {
+              "/etc/yum.repos.d/chef-stable.repo": {
+                "content": {
+                  "Fn::Join": ["", [
+                    "[chef-stable]\n",
+                    "name=Chef Stable Repo\n",
+                    "baseurl=https://packagecloud.io/chef/stable/el/6/$basearch\n",
+                    "enabled=1\n",
+                    "gpgcheck=1\n",
+                    "gpgkey=https://downloads.chef.io/packages-chef-io-public.key\n",
+                    "sslcacert=/etc/pki/tls/certs/ca-bundle.crt\n",
+                    "sslverify=1\n"
+                  ]]
+                },
+                "mode": "000644",
+                "owner": "root",
+                "group": "root"
+              },
+              "/etc/opscode/chef-server.rb": {
+                "content": {
+                  "Fn::Join": ["", [
+                    "bookshelf['enable'] = false\n",
+                    "bookshelf['external_url'] = 'https://s3.amazonaws.com'\n",
+                    "bookshelf['vip'] = 's3.amazonaws.com'\n",
+                    "bookshelf['access_key_id'] = '", {
+                      "Ref": "AccessKey"
+                    }, "'\n",
+                    "bookshelf['secret_access_key'] = '", {
+                      "Fn::GetAtt": ["AccessKey", "SecretAccessKey"]
+                    }, "'\n",
+                    "opscode_erchef['s3_bucket'] = '", {
+                      "Ref": "CookbooksBucket"
+                    }, "'\n"
+                  ]]
+                },
+                "mode": "000644",
+                "owner": "root",
+                "group": "root"
+              }
+            },
+            "services": {
+              "sysvinit": {
+                "ntpd": {
+                  "enabled": "true",
+                  "ensureRunning": "true"
+                }
+              }
+            }
+          }
+        }
+      },
+
+        "Properties": {
+          "ImageId": {
+            "Fn::FindInMap": [
+              "EC2AmiMap",
+              {
+                "Ref": "AWS::Region"
+              },
+              "AMI"
+            ]
+          },
+          "InstanceType": {
+            "Ref": "EC2InstanceType"
+          },
+          "AssociatePublicIpAddress": true,
+          "IamInstanceProfile": {
+            "Ref": "EC2InstanceProfile"
+          },
+          "KeyName": {
+            "Ref": "KeyName"
+          },
+          "SecurityGroups": [{
+              "Ref": "MistMasterSecurityGroup"
+            },
+            {
+              "Ref": "InstanceSecurityGroup"
+            }
+          ],
+          "UserData": {
+            "Fn::Base64": {
+              "Fn::Join": [
+                "\n", [
+                  "#!/bin/bash -ex\n",
+                  "PUBLIC_DNS=`(curl http://169.254.169.254/latest/meta-data/public-hostname)`\n",
+                  "PRIVATE_IPV4=`(curl http://169.254.169.254/latest/meta-data/local-ipv4)`\n",
+                  "SHORTNAME=`(echo $PUBLIC_DNS | cut -d \".\" -f1)`\n",
+                  "export HOME=\/root\n",
+                  "yum -y install https://download.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm\n",
+                  "yum -y install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.amzn1.noarch.rpm\n",
+                  "export PATH=$PATH:/opt/aws/bin\n",
+                  "cfn-init --region ", {
+                    "Ref": "AWS::Region"
+                  },
+                  "    -v -s ", {
+                    "Ref": "AWS::StackName"
+                  }, " -r ChefServer ",
+                  "         --access-key ", {
+                    "Ref": "AccessKey"
+                  },
+                  "         --secret-key ", {
+                    "Fn::GetAtt": ["AccessKey", "SecretAccessKey"]
+                  },
+                  "         --region     ", {
+                    "Ref": "AWS::Region"
+                  }, " || error_exit 'Failed to run cfn-init'\n",
+
+                  "## Download Enterprise Chef installer\n",
+                  "yum -y install chef-server-core opscode-manage || error_exit 'Failed to install Chef Server'\n",
+                  "hostname $SHORTNAME\n",
+                  "echo $PUBLIC_DNS | tee /etc/hostname\n",
+                  "echo \"$PRIVATE_IPV4 $PUBLIC_DNS $SHORTNAME\" >> /etc/hosts\n",
+                  "chef-server-ctl reconfigure >> /var/log/chef-install.log\n",
+                  "opscode-manage-ctl reconfigure >> /var/log/chef-install.log\n",
+
+                  "# If all went well, signal success\n"
+                ]
+              ]
+            }
+          }
+        },
+        "Metadata1": {
+          "AWS::CloudFormation::Init": {
+            "config": {
+              "packages": {
+                "yum": {
+                  "jq": [],
+                  "nfs-utils": []
+                },
+                "python": {
+                  "awscli": []
+                }
+              },
+              "files": {
+                "/etc/EC2/EC2.config": {
+                  "content": {
+                    "Fn::Join": [
+                      "", [
+                        "EC2_CLUSTER=",
+                        {
+                          "Ref": "EC2Cluster"
+                        },
+                        "\n",
+                        "STACK_NAME=",
+                        {
+                          "Ref": "AWS::StackName"
+                        },
+                        "\n",
+                        "EFS_NAME=",
+                        {
+                          "Ref": "EFSNameTag"
+                        },
+                        "\n",
+                        "EC2_INSTANCE_ATTRIBUTES={\"MIST_ROLE\":\"",
+                        "role_master",
+                        "\"}",
+                        "\n",
+                        "ROOT_URL_DOWNLOAD=",
+                        {
+                          "Ref": "RootUrlDownload"
+                        },
+                        "\n",
+                        "ROUTE_CONFIGURATION_FILE=",
+                        {
+                          "Ref": "RouteConfigurationFile"
+                        },
+                        "\n",
+                        "CONFIGURATION_FILE=",
+                        {
+                          "Ref": "ConfigurationFile"
+                        },
+                        "\n",
+                        "MIST_VERSION=",
+                        {
+                          "Ref": "MistVersion"
+                        },
+                        "\n",
+                        "SPARK_VERSION=",
+                        {
+                          "Ref": "SparkVersion"
+                        }
+                      ]
+                    ]
+                  }
+                },
+                "/etc/init/EC2.override": {
+                  "source": {
+                    "Fn::Join": [
+                      "/", [{
+                          "Ref": "RootUrlDownload"
+                        },
+                        "weave",
+                        "EC2.override"
+                      ]
+                    ]
+                  }
+                },
+                "/etc/init/weave.conf": {
+                  "source": {
+                    "Fn::Join": [
+                      "/", [{
+                          "Ref": "RootUrlDownload"
+                        },
+                        "weave",
+                        "weave.conf"
+                      ]
+                    ]
+                  }
+                },
+                "/etc/weave/run.sh": {
+                  "source": {
+                    "Fn::Join": [
+                      "/", [{
+                          "Ref": "RootUrlDownload"
+                        },
+                        "weave",
+                        "run.sh"
+                      ]
+                    ]
+                  },
+                  "mode": "000755"
+                },
+                "/etc/weave/peers.sh": {
+                  "source": {
+                    "Fn::Join": [
+                      "/", [{
+                          "Ref": "RootUrlDownload"
+                        },
+                        "weave",
+                        "peers.sh"
+                      ]
+                    ]
+                  },
+                  "mode": "000755"
+                },
+                "/usr/local/bin/mount_efs": {
+                  "source": {
+                    "Fn::Join": [
+                      "/", [{
+                          "Ref": "RootUrlDownload"
+                        },
+                        "efs",
+                        "mount_efs.sh"
+                      ]
+                    ]
+                  },
+                  "mode": "000755"
+                },
+                "/usr/local/bin/weave": {
+                  "source": {
+                    "Fn::Join": [
+                      "/", [
+                        "https://github.com/weaveworks/weave/releases/download",
+                        "v1.9.5",
+                        "weave"
+                      ]
+                    ]
+                  },
+                  "mode": "000755"
+                }
+              }
+            }
+          }
+        }
+      },
+      "MistMasterInstanceAsg": {
+        "Type": "AWS::AutoScaling::AutoScalingGroup",
+        "Properties": {
+          "VPCZoneIdentifier": [{
+            "Fn::Join": [
+              ",", [{
+                  "Ref": "Subnet2"
+                },
+                {
+                  "Ref": "Subnet1"
+                }
+              ]
+            ]
+          }],
+          "LaunchConfigurationName": {
+            "Ref": "MistMasterLaunchConfiguration"
+          },
+          "MinSize": "1",
+          "MaxSize": "1",
+          "DesiredCapacity": "1",
+          "Tags": [{
+            "Key": "Name",
+            "Value": {
+              "Fn::Join": [
+                "", [
+                  "EC2 Instance - ",
+                  {
+                    "Ref": "AWS::StackName"
+                  }
+                ]
+              ]
+            },
+            "PropagateAtLaunch": "true"
+          }]
+        }
+      },
+
+      "MistMasterTaskDefinition": {
+        "Type": "AWS::EC2::TaskDefinition",
+        "DependsOn": [
+          "DescribeRole"
+        ],
+        "Properties": {
+          "TaskRoleArn": {
+            "Fn::GetAtt": ["DescribeRole", "Arn"]
+          },
+          "NetworkMode": "bridge",
+          "ContainerDefinitions": [{
+              "Name": "mist-master",
+              "MemoryReservation": "200",
+              "Image": {
+                "Fn::Join": [
+                  "", [{
+                      "Ref": "MistImageName"
+                    },
+                    ":",
+                    {
+                      "Ref": "MistVersion"
+                    },
+                    "-",
+                    {
+                      "Ref": "SparkVersion"
+                    }
+                  ]
+                ]
+              },
+              "PortMappings": [{
+                "ContainerPort": 2004,
+                "HostPort": 2004
+              }],
+              "Command": ["master"],
+              "Essential": "true",
+              "Links": [
+                "mosquitto:mosquitto"
+              ],
+              "Environment": [{
+                  "Name": "MIST_CONFIG",
+                  "Value": "/usr/share/mist/configs/default.conf"
+                },
+                {
+                  "Name": "MIST_VERSION",
+                  "Value": {
+                    "Ref": "MistVersion"
+                  }
+                },
+                {
+                  "Name": "STACK_NAME",
+                  "Value": {
+                    "Ref": "AWS::StackName"
+                  }
+                },
+                {
+                  "Name": "SPARK_VERSION",
+                  "Value": {
+                    "Ref": "SparkVersion"
+                  }
+                },
+                {
+                  "Name": "SPARK_INSTANCE_TYPE",
+                  "Value": {
+                    "Ref": "SparkInstanceType"
+                  }
+                },
+                {
+                  "Name": "SPARK_SLAVE_SCOUNT",
+                  "Value": {
+                    "Ref": "SparkSlavesCount"
+                  }
+                },
+                {
+                  "Name": "START_SPARK_CLUSTER",
+                  "Value": {
+                    "Ref": "StartSparkCluster"
+                  }
+                },
+
+                {
+                  "Name": "SPARK_SPOT_PRICE",
+                  "Value": {
+                    "Ref": "SparkSpotPrice"
+                  }
+                }
+              ],
+              "MountPoints": [{
+                  "ContainerPath": "/usr/share/mist/configs/",
+                  "SourceVolume": "mist-configs"
+                },
+                {
+                  "ContainerPath": "/jobs/",
+                  "SourceVolume": "mist-jobs"
+                }
+              ]
+            },
+            {
+              "Name": "mosquitto",
+              "Memory": 500,
+              "Cpu": 250,
+              "Image": "ansi/mosquitto",
+              "Essential": true
+            }
+          ],
+          "Volumes": [{
+              "Host": {
+                "SourcePath": "/mnt/efs/mist-jobs"
+              },
+              "Name": "mist-jobs"
+            },
+            {
+              "Host": {
+                "SourcePath": "/mnt/efs/mist-configs"
+              },
+              "Name": "mist-configs"
+            }
+          ]
+        }
+      },
+      "MistMasterService": {
+        "Type": "AWS::EC2::Service",
+        "DependsOn": [
+          "MistMasterInstanceAsg"
+        ],
+        "Properties": {
+          "PlacementConstraints": [{
+              "Type": "memberOf",
+              "Expression": "attribute:MIST_ROLE == role_master"
+            },
+            {
+              "Type": "distinctInstance"
+            }
+          ],
+          "Cluster": {
+            "Ref": "EC2Cluster"
+          },
+          "DesiredCount": "1",
+          "TaskDefinition": {
+            "Ref": "MistMasterTaskDefinition"
+          }
+        }
+      }
+    },
+    "Outputs": {
+      "EC2Cluster": {
+        "Value": {
+          "Ref": "EC2Cluster"
+        }
+      },
+      "MountTargetID": {
+        "Description": "Mount target ID",
+        "Value": {
+          "Ref": "MountTarget"
+        }
+      },
+      "FileSystemID": {
+        "Description": "File system ID",
+        "Value": {
+          "Ref": "FileSystem"
+        }
+      },
+      "ChefServerURL" : {
+      "Value" : { "Fn::Join" : ["", ["https://", { "Fn::GetAtt" : [ "ChefServer", "PublicDnsName" ]}]] },
+      "Description" : "URL for newly created Enterprise Chef server"
+    }
+  }
+}
+}
